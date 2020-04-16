@@ -24,12 +24,7 @@ import esa.mo.helpertools.connections.ConnectionConsumer;
 import esa.mo.helpertools.helpers.HelperAttributes;
 import esa.mo.nmf.MCRegistration;
 import esa.mo.nmf.NMFException;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.text.Format;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.logging.Level;
@@ -41,7 +36,6 @@ import org.ccsds.moims.mo.mal.structures.Attribute;
 import org.ccsds.moims.mo.mal.structures.Duration;
 import org.ccsds.moims.mo.mal.structures.Identifier;
 import org.ccsds.moims.mo.mal.structures.IdentifierList;
-import org.ccsds.moims.mo.mal.structures.Subscription;
 import org.ccsds.moims.mo.mal.structures.UInteger;
 import org.ccsds.moims.mo.mal.structures.UOctet;
 import org.ccsds.moims.mo.mal.structures.UShort;
@@ -54,15 +48,14 @@ import org.ccsds.moims.mo.mc.structures.ConditionalConversionList;
 import org.ccsds.moims.mo.platform.autonomousadcs.structures.AttitudeMode;
 import org.ccsds.moims.mo.platform.autonomousadcs.structures.AttitudeModeNadirPointing;
 import org.ccsds.moims.mo.platform.autonomousadcs.structures.AttitudeModeSunPointing;
-import org.ccsds.moims.mo.platform.camera.consumer.CameraAdapter;
+import org.ccsds.moims.mo.platform.autonomousadcs.structures.AttitudeModeVectorPointing;
 import org.ccsds.moims.mo.platform.camera.structures.CameraSettings;
 import org.ccsds.moims.mo.platform.camera.structures.PictureFormat;
-import org.ccsds.moims.mo.platform.opticaldatareceiver.consumer.OpticalDataReceiverAdapter;
 import org.ccsds.moims.mo.platform.powercontrol.structures.Device;
 import org.ccsds.moims.mo.platform.powercontrol.structures.DeviceList;
 import org.ccsds.moims.mo.platform.powercontrol.structures.DeviceType;
-import org.ccsds.moims.mo.platform.softwaredefinedradio.consumer.SoftwareDefinedRadioAdapter;
 import org.ccsds.moims.mo.platform.softwaredefinedradio.structures.SDRConfiguration;
+import org.ccsds.moims.mo.platform.structures.VectorF3D;
 
 /**
  *
@@ -76,6 +69,7 @@ public class PayloadsTestActionsHandler
   private static final String ACTION_UNSET_ATTITUDE = "ADCS_UnsetAttitude";
   private static final String ACTION_NADIR_POINTING_MODE = "ADCS_NadirPointingMode";
   private static final String ACTION_SUN_POINTING_MODE = "ADCS_SunPointingMode";
+  private static final String ACTION_VECTOR_POINTING_MODE = "ADCS_VectorPointingMode";
   private static final String ACTION_POWER_ON_DEVICE = "PowerOnDevice";
   private static final String ACTION_RECORD_SDR = "RecordSDRData";
   private static final String ACTION_TAKE_PICTURE_RAW = "TakePicture.RAW";
@@ -151,12 +145,40 @@ public class PayloadsTestActionsHandler
     ActionDefinitionDetails actionDefNadirPointing = new ActionDefinitionDetails(
         "Changes the spacecraft's attitude to nadir pointing mode.",
         new UOctet((short) 0), new UShort(0), argumentsSetAttitude);
+
+    ArgumentDefinitionDetailsList argumentsSetVectorAttitude = new ArgumentDefinitionDetailsList();
+    {
+      ConditionalConversionList conditionalConversions = null;
+      Byte convertedType = null;
+      String convertedUnit = null;
+      argumentsSetVectorAttitude.add(new ArgumentDefinitionDetails(new Identifier(
+          "modeHoldDuration"), null, (Byte) (byte) Attribute._DURATION_TYPE_SHORT_FORM, "seconds",
+          conditionalConversions, convertedType, convertedUnit));
+      argumentsSetVectorAttitude.add(new ArgumentDefinitionDetails(new Identifier(
+          "target X"), null, (Byte) (byte) Attribute._FLOAT_TYPE_SHORT_FORM, "",
+          conditionalConversions, convertedType, convertedUnit));
+      argumentsSetVectorAttitude.add(new ArgumentDefinitionDetails(new Identifier(
+          "target Y"), null, (Byte) (byte) Attribute._FLOAT_TYPE_SHORT_FORM, "",
+          conditionalConversions, convertedType, convertedUnit));
+      argumentsSetVectorAttitude.add(new ArgumentDefinitionDetails(new Identifier(
+          "target Z"), null, (Byte) (byte) Attribute._FLOAT_TYPE_SHORT_FORM, "",
+          conditionalConversions, convertedType, convertedUnit));
+      argumentsSetVectorAttitude.add(new ArgumentDefinitionDetails(new Identifier(
+          "margin"), null, (Byte) (byte) Attribute._FLOAT_TYPE_SHORT_FORM, "degees",
+          conditionalConversions, convertedType, convertedUnit));
+    }
+    actionNames.add(new Identifier(ACTION_VECTOR_POINTING_MODE));
+    ActionDefinitionDetails actionDefVectorPointing = new ActionDefinitionDetails(
+        "Changes the spacecraft's attitude to vector pointing mode, given a target Vector and a margin.",
+        new UOctet((short) 0), new UShort(0), argumentsSetVectorAttitude);
+
     actionNames.add(new Identifier(ACTION_NADIR_POINTING_MODE));
     ActionDefinitionDetails actionDefUnsetAttitude = new ActionDefinitionDetails(
         "Unsets the spacecraft's attitude.", new UOctet((short) 0),
         new UShort(0), null);
     actionNames.add(new Identifier(ACTION_UNSET_ATTITUDE));
     actionDefs.add(actionDefSunPointing);
+    actionDefs.add(actionDefVectorPointing);
     actionDefs.add(actionDefNadirPointing);
     actionDefs.add(actionDefUnsetAttitude);
     actionDefs.add(new ActionDefinitionDetails(
@@ -224,6 +246,17 @@ public class PayloadsTestActionsHandler
           return executeAdcsModeAction(
               (Duration) attributeValues.get(0).getValue(),
               new AttitudeModeNadirPointing(), payloadsTestMCAdapter);
+        case PayloadsTestActionsHandler.ACTION_VECTOR_POINTING_MODE:
+          VectorF3D vector = new VectorF3D(
+              (float) HelperAttributes.attribute2JavaType(attributeValues.get(1).getValue()),
+              (float) HelperAttributes.attribute2JavaType(attributeValues.get(2).getValue()),
+              (float) HelperAttributes.attribute2JavaType(attributeValues.get(3).getValue()));
+          float margin = (float) HelperAttributes.attribute2JavaType(
+              attributeValues.get(4).getValue());
+          return executeAdcsModeAction(
+              (Duration) attributeValues.get(0).getValue(),
+              new AttitudeModeVectorPointing(vector, margin),
+              payloadsTestMCAdapter);
         case PayloadsTestActionsHandler.ACTION_UNSET_ATTITUDE:
           return executeAdcsModeAction(null, null,
               payloadsTestMCAdapter);
